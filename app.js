@@ -1,116 +1,119 @@
 (function () {
-  const DB_NAME = "one-click-recorder-db";
-  const DB_VERSION = 1;
-  const STORE_NAME = "records";
-
   const recordButton = document.getElementById("recordButton");
-  const statusText = document.getElementById("statusText");
-  const supportMessage = document.getElementById("supportMessage");
-  const recordsList = document.getElementById("recordsList");
-  const emptyState = document.getElementById("emptyState");
-  const recordCount = document.getElementById("recordCount");
   const exportButton = document.getElementById("exportButton");
-  const importInput = document.getElementById("importInput");
+  const clearButton = document.getElementById("clearButton");
+  const statusText = document.getElementById("statusText");
+  const durationText = document.getElementById("durationText");
+  const segmentCount = document.getElementById("segmentCount");
+  const supportMessage = document.getElementById("supportMessage");
 
-  let db;
-  let stream;
-  let recorder;
+  const preferredTypes = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+    "audio/ogg"
+  ];
+
+  let stream = null;
+  let recorder = null;
   let chunks = [];
-  let isRecording = false;
+  let mimeType = "";
+  let state = "idle";
+  let elapsedMs = 0;
+  let recordingStartedAt = 0;
+  let segmentTotal = 0;
+  let timerId = null;
+  let shouldExportOnStop = false;
 
   function supportsRecording() {
     return Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
   }
 
-  function openDb() {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onupgradeneeded = () => {
-        const database = request.result;
-        if (!database.objectStoreNames.contains(STORE_NAME)) {
-          database.createObjectStore(STORE_NAME, { keyPath: "id" });
-        }
-      };
-
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  function transaction(mode) {
-    return db.transaction(STORE_NAME, mode).objectStore(STORE_NAME);
-  }
-
-  function getAllRecords() {
-    return new Promise((resolve, reject) => {
-      const request = transaction("readonly").getAll();
-      request.onsuccess = () => resolve(request.result.sort((a, b) => b.createdAt - a.createdAt));
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  function saveRecord(record) {
-    return new Promise((resolve, reject) => {
-      const request = transaction("readwrite").put(record);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  function deleteRecord(id) {
-    return new Promise((resolve, reject) => {
-      const request = transaction("readwrite").delete(id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  function clearRecords() {
-    return new Promise((resolve, reject) => {
-      const request = transaction("readwrite").clear();
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  }
-
-  function formatDate(timestamp) {
-    return new Intl.DateTimeFormat("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
-    }).format(new Date(timestamp));
-  }
-
-  function setRecordingUi(recording) {
-    isRecording = recording;
-    statusText.textContent = recording ? "正在录音" : "未开始";
-    statusText.classList.toggle("recording", recording);
-    recordButton.textContent = recording ? "停止录音" : "一键开始录音";
-    recordButton.classList.toggle("recording", recording);
-  }
-
   function pickMimeType() {
-    const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
     if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) {
       return "";
     }
-    return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+    return preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
   }
 
-  async function startRecording() {
-    if (!supportsRecording()) {
-      supportMessage.hidden = false;
+  function formatDuration(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    return `${minutes}:${seconds}`;
+  }
+
+  function currentElapsedMs() {
+    if (state !== "recording") {
+      return elapsedMs;
+    }
+    return elapsedMs + Date.now() - recordingStartedAt;
+  }
+
+  function setTimerRunning(shouldRun) {
+    if (timerId) {
+      clearInterval(timerId);
+      timerId = null;
+    }
+    if (shouldRun) {
+      timerId = window.setInterval(render, 250);
+    }
+  }
+
+  function render() {
+    durationText.textContent = formatDuration(currentElapsedMs());
+    segmentCount.textContent = String(segmentTotal);
+    statusText.classList.toggle("recording", state === "recording");
+    recordButton.classList.toggle("recording", state === "recording");
+
+    if (state === "recording") {
+      statusText.textContent = "正在录音";
+      recordButton.textContent = "停止录音";
+      exportButton.disabled = true;
+      clearButton.disabled = true;
       return;
     }
 
-    stream = stream || await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (state === "paused") {
+      statusText.textContent = "已停止，可继续追加";
+      recordButton.textContent = "继续录音";
+      exportButton.disabled = false;
+      clearButton.disabled = false;
+      return;
+    }
+
+    statusText.textContent = "未开始";
+    recordButton.textContent = "一键开始录音";
+    exportButton.disabled = true;
+    clearButton.disabled = true;
+  }
+
+  async function ensureStream() {
+    if (stream && stream.active) {
+      return stream;
+    }
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return stream;
+  }
+
+  function handleRecorderStop() {
+    const blobType = mimeType || chunks[0]?.type || "audio/webm";
+    const audioBlob = new Blob(chunks, { type: blobType });
+    const shouldDownload = shouldExportOnStop && audioBlob.size > 0;
+
+    if (shouldDownload) {
+      downloadBlob(audioBlob, blobType);
+    }
+
+    resetCurrentVoice();
+  }
+
+  async function startNewVoice() {
+    const audioStream = await ensureStream();
+    mimeType = pickMimeType();
     chunks = [];
-    const mimeType = pickMimeType();
-    recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    recorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined);
 
     recorder.addEventListener("dataavailable", (event) => {
       if (event.data && event.data.size > 0) {
@@ -118,192 +121,133 @@
       }
     });
 
-    recorder.addEventListener("stop", async () => {
-      const blobType = mimeType || chunks[0]?.type || "audio/webm";
-      const audioBlob = new Blob(chunks, { type: blobType });
-      chunks = [];
-
-      if (audioBlob.size > 0) {
-        await saveRecord({
-          id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-          createdAt: Date.now(),
-          note: "",
-          type: audioBlob.type,
-          audio: audioBlob
-        });
-        await renderRecords();
-      }
-
-      setRecordingUi(false);
-    }, { once: true });
-
+    recorder.addEventListener("stop", handleRecorderStop, { once: true });
     recorder.start();
-    setRecordingUi(true);
   }
 
-  function stopRecording() {
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
+  async function startOrResumeRecording() {
+    if (!supportsRecording()) {
+      supportMessage.hidden = false;
+      return;
     }
+
+    if (state === "paused" && recorder && recorder.state === "paused") {
+      recorder.resume();
+    } else {
+      await startNewVoice();
+    }
+
+    state = "recording";
+    recordingStartedAt = Date.now();
+    setTimerRunning(true);
+    render();
   }
 
-  function blobToDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(blob);
-    });
+  function pauseRecording() {
+    if (!recorder || recorder.state !== "recording") {
+      return;
+    }
+
+    elapsedMs = currentElapsedMs();
+    segmentTotal += 1;
+    recorder.requestData();
+    recorder.pause();
+    state = "paused";
+    setTimerRunning(false);
+    render();
   }
 
-  async function dataUrlToBlob(dataUrl) {
-    const response = await fetch(dataUrl);
-    return response.blob();
+  function resetCurrentVoice() {
+    chunks = [];
+    recorder = null;
+    mimeType = "";
+    state = "idle";
+    elapsedMs = 0;
+    recordingStartedAt = 0;
+    segmentTotal = 0;
+    shouldExportOnStop = false;
+    setTimerRunning(false);
+    render();
   }
 
-  async function exportJson() {
-    const records = await getAllRecords();
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      app: "one-click-recorder",
-      records: await Promise.all(records.map(async (record) => ({
-        id: record.id,
-        createdAt: record.createdAt,
-        note: record.note || "",
-        type: record.type || record.audio?.type || "audio/webm",
-        audioDataUrl: await blobToDataUrl(record.audio)
-      })))
-    };
+  function timestamp() {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  }
 
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
+  function extensionFor(type) {
+    if (type.includes("mp4")) return "m4a";
+    if (type.includes("ogg")) return "ogg";
+    if (type.includes("mpeg")) return "mp3";
+    return "webm";
+  }
+
+  function downloadBlob(audioBlob, type) {
+    const url = URL.createObjectURL(audioBlob);
     const link = document.createElement("a");
+
     link.href = url;
-    link.download = `one-click-recorder-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `one-click-recording-${timestamp()}.${extensionFor(type)}`;
     document.body.appendChild(link);
     link.click();
     link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  async function importJson(file) {
-    const text = await file.text();
-    const payload = JSON.parse(text);
-    const incoming = Array.isArray(payload.records) ? payload.records : [];
-
-    if (!incoming.length) {
-      alert("没有找到可导入的记录。");
+  function exportVoiceFile() {
+    if (state !== "paused" || !recorder || recorder.state === "inactive") {
       return;
     }
 
-    const confirmed = confirm("导入会替换当前浏览器中的全部录音记录，确定继续吗？");
-    if (!confirmed) {
+    shouldExportOnStop = true;
+    recorder.stop();
+  }
+
+  function clearCurrentVoice() {
+    if (!recorder || recorder.state === "inactive") {
+      resetCurrentVoice();
       return;
     }
 
-    await clearRecords();
-    for (const item of incoming) {
-      if (!item.audioDataUrl) {
-        continue;
-      }
-      const audio = await dataUrlToBlob(item.audioDataUrl);
-      await saveRecord({
-        id: item.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())),
-        createdAt: Number(item.createdAt) || Date.now(),
-        note: item.note || "",
-        type: item.type || audio.type || "audio/webm",
-        audio
-      });
-    }
-
-    await renderRecords();
-  }
-
-  async function renderRecords() {
-    const records = await getAllRecords();
-    recordsList.innerHTML = "";
-    recordCount.textContent = `${records.length} 条`;
-    emptyState.hidden = records.length > 0;
-
-    for (const record of records) {
-      const card = document.createElement("article");
-      card.className = "record-card";
-
-      const meta = document.createElement("div");
-      meta.className = "record-meta";
-      meta.textContent = formatDate(record.createdAt);
-
-      const audio = document.createElement("audio");
-      audio.controls = true;
-      audio.src = URL.createObjectURL(record.audio);
-
-      const note = document.createElement("textarea");
-      note.placeholder = "添加文字备注";
-      note.value = record.note || "";
-      note.addEventListener("change", async () => {
-        record.note = note.value;
-        await saveRecord(record);
-      });
-
-      const remove = document.createElement("button");
-      remove.className = "delete-button";
-      remove.type = "button";
-      remove.textContent = "删除";
-      remove.addEventListener("click", async () => {
-        if (confirm("确定删除这条录音记录吗？")) {
-          URL.revokeObjectURL(audio.src);
-          await deleteRecord(record.id);
-          await renderRecords();
-        }
-      });
-
-      card.append(meta, audio, note, remove);
-      recordsList.appendChild(card);
-    }
+    shouldExportOnStop = false;
+    recorder.stop();
   }
 
   recordButton.addEventListener("click", () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording().catch((error) => {
-        console.error(error);
-        supportMessage.hidden = false;
-        setRecordingUi(false);
-      });
-    }
-  });
-
-  exportButton.addEventListener("click", () => {
-    exportJson().catch((error) => {
-      console.error(error);
-      alert("导出失败。");
-    });
-  });
-
-  importInput.addEventListener("change", () => {
-    const file = importInput.files && importInput.files[0];
-    if (!file) {
+    if (state === "recording") {
+      pauseRecording();
       return;
     }
-    importJson(file).catch((error) => {
+
+    startOrResumeRecording().catch((error) => {
       console.error(error);
-      alert("导入失败，请确认 JSON 文件格式正确。");
-    }).finally(() => {
-      importInput.value = "";
+      supportMessage.hidden = false;
+      resetCurrentVoice();
     });
   });
 
-  async function init() {
-    db = await openDb();
-    if (!supportsRecording()) {
-      supportMessage.hidden = false;
+  exportButton.addEventListener("click", exportVoiceFile);
+
+  clearButton.addEventListener("click", () => {
+    if (confirm("确定清空当前未导出的语音吗？清空后无法恢复。")) {
+      clearCurrentVoice();
     }
-    await renderRecords();
+  });
+
+  if (!supportsRecording()) {
+    supportMessage.hidden = false;
+    recordButton.disabled = true;
   }
 
-  init().catch((error) => {
-    console.error(error);
-    alert("初始化失败，请检查浏览器是否支持 IndexedDB。");
-  });
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./sw.js").catch((error) => {
+        console.warn("Service worker registration failed", error);
+      });
+    });
+  }
+
+  render();
 })();

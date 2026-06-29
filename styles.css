@@ -72,8 +72,7 @@ h2 {
   line-height: 1.5;
 }
 
-.recorder,
-.records-section {
+.recorder {
   border: 1px solid #e2e2e2;
   border-radius: 18px;
   background: #ffffff;
@@ -93,6 +92,13 @@ h2 {
 .status.recording {
   color: #111111;
   font-weight: 700;
+}
+
+.duration,
+.privacy-note {
+  color: #666666;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .record-button {
@@ -131,77 +137,7 @@ h2 {
   font-weight: 650;
 }
 
-.records-section {
-  padding: 16px;
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid #ececec;
-}
-
-#recordCount {
-  color: #666666;
-  font-size: 14px;
-}
-
-.records-list {
-  display: grid;
-  gap: 12px;
-  padding-top: 14px;
-}
-
-.record-card {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid #e6e6e6;
-  border-radius: 14px;
-  background: #fafafa;
-}
-
-.record-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  color: #333333;
-  font-size: 14px;
-}
-
-audio {
-  width: 100%;
-}
-
-textarea {
-  width: 100%;
-  min-height: 76px;
-  resize: vertical;
-  border: 1px solid #d7d7d7;
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: #ffffff;
-  color: #111111;
-  line-height: 1.45;
-}
-
-.delete-button {
-  min-height: 42px;
-  border: 1px solid #d0d0d0;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #333333;
-  cursor: pointer;
-  font-weight: 650;
-}
-
-button:focus-visible,
-textarea:focus-visible,
-.import-label:focus-visible {
+button:focus-visible {
   outline: 3px solid #111111;
   outline-offset: 3px;
 }
@@ -209,12 +145,6 @@ textarea:focus-visible,
 button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
-}
-
-.empty {
-  padding: 22px 0 8px;
-  color: #777777;
-  text-align: center;
 }
 
 @media (max-width: 360px) {

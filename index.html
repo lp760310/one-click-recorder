@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#111111">
+    <title>个人学习中心 · 一键录音记录</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <p class="eyebrow">个人学习中心</p>
+        <h1>一键录音记录</h1>
+        <p id="supportMessage" class="notice" hidden>
+          当前访问方式可能不支持录音。请使用 HTTPS，或在支持麦克风权限的浏览器中打开。
+        </p>
+      </header>
+
+      <section class="recorder" aria-live="polite">
+        <p id="statusText" class="status">未开始</p>
+        <button id="recordButton" class="record-button" type="button">一键开始录音</button>
+      </section>
+
+      <section class="tools" aria-label="导入导出">
+        <button id="exportButton" class="tool-button" type="button">导出记录 JSON</button>
+        <label class="tool-button import-label" for="importInput">导入 JSON</label>
+        <input id="importInput" type="file" accept="application/json,.json" hidden>
+      </section>
+
+      <section class="records-section">
+        <div class="section-title">
+          <h2>录音记录</h2>
+          <span id="recordCount">0 条</span>
+        </div>
+        <div id="recordsList" class="records-list"></div>
+        <p id="emptyState" class="empty">暂无记录。点一下开始录音。</p>
+      </section>
+    </main>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

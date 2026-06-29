@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#111111">
+    <meta name="description" content="独立手机端一键录音工具，支持暂停、继续和导出语音文件。">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="一键录音">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>一键录音</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <p class="eyebrow">独立录音工具</p>
+        <h1>一键录音</h1>
+        <p id="supportMessage" class="notice" hidden>
+          当前访问方式可能不支持录音。请使用 HTTPS，或在支持麦克风权限的浏览器中打开。
+        </p>
+      </header>
+
+      <section class="recorder" aria-live="polite">
+        <p id="statusText" class="status">未开始</p>
+        <p class="duration">总时长 <strong id="durationText">00:00</strong> · 已录制 <strong id="segmentCount">0</strong> 段</p>
+        <button id="recordButton" class="record-button" type="button">一键开始录音</button>
+      </section>
+
+      <section class="tools" aria-label="语音文件操作">
+        <button id="exportButton" class="tool-button" type="button" disabled>导出语音文件</button>
+        <button id="clearButton" class="tool-button subtle" type="button" disabled>清空当前语音</button>
+      </section>
+
+      <p class="privacy-note">语音只保存在当前页面内存中，导出前不会上传，也不会和学习记录混在一起。</p>
+    </main>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

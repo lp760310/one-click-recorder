@@ -7,12 +7,9 @@
   const segmentCount = document.getElementById("segmentCount");
   const supportMessage = document.getElementById("supportMessage");
 
-  const preferredTypes = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-    "audio/ogg"
+  const m4aTypes = [
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4"
   ];
 
   let stream = null;
@@ -27,14 +24,19 @@
   let shouldExportOnStop = false;
 
   function supportsRecording() {
-    return Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+    return Boolean(
+      navigator.mediaDevices &&
+      navigator.mediaDevices.getUserMedia &&
+      window.MediaRecorder &&
+      pickM4aMimeType()
+    );
   }
 
-  function pickMimeType() {
+  function pickM4aMimeType() {
     if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) {
       return "";
     }
-    return preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+    return m4aTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
   }
 
   function formatDuration(ms) {
@@ -98,7 +100,13 @@
   }
 
   function handleRecorderStop() {
-    const blobType = mimeType || chunks[0]?.type || "audio/webm";
+    const blobType = mimeType || chunks[0]?.type || "";
+    if (!blobType.includes("mp4")) {
+      supportMessage.hidden = false;
+      resetCurrentVoice();
+      return;
+    }
+
     const audioBlob = new Blob(chunks, { type: blobType });
     const shouldDownload = shouldExportOnStop && audioBlob.size > 0;
 
@@ -111,9 +119,14 @@
 
   async function startNewVoice() {
     const audioStream = await ensureStream();
-    mimeType = pickMimeType();
+    mimeType = pickM4aMimeType();
+    if (!mimeType) {
+      supportMessage.hidden = false;
+      throw new Error("M4A recording is not supported by this browser.");
+    }
+
     chunks = [];
-    recorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined);
+    recorder = new MediaRecorder(audioStream, { mimeType });
 
     recorder.addEventListener("dataavailable", (event) => {
       if (event.data && event.data.size > 0) {
@@ -176,19 +189,12 @@
     return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   }
 
-  function extensionFor(type) {
-    if (type.includes("mp4")) return "m4a";
-    if (type.includes("ogg")) return "ogg";
-    if (type.includes("mpeg")) return "mp3";
-    return "webm";
-  }
-
-  function downloadBlob(audioBlob, type) {
+  function downloadBlob(audioBlob) {
     const url = URL.createObjectURL(audioBlob);
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = `one-click-recording-${timestamp()}.${extensionFor(type)}`;
+    link.download = `one-click-recording-${timestamp()}.m4a`;
     document.body.appendChild(link);
     link.click();
     link.remove();
